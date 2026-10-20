@@ -1,10 +1,14 @@
 import json
+from turtle import title
 from typing import override
 from django.shortcuts import render
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from tasks.serializers import TaskSerializer
+from .models import Task
 # Create your views here.
 #view.py  is the file that contains the views for the tasks app.
 # A view is a function that takes a request and returns a response.
@@ -13,62 +17,58 @@ TASK_FILE = 'tasks/files/tasks.json'
 
 class TaskView(APIView):
 
-    def __get_all_tasks(self):
-        with open(TASK_FILE, 'r') as file:
-            return json.loads(file.read())
-
     #Get request to get task by id
     @override
     def get(self, request, id = None):
-        tasks = self.__get_all_tasks()
-        if id is None:
-            return Response({'tasks': tasks})
-        for task in tasks:
-            if task['id'] == id:
-                return Response({'task': task})
-        return Response({'error': 'Task not found'}, status=404)
+        try:
+            if id is None:
+                task = Task.objects.all()
+                serilizer = TaskSerializer(task, many=True)
+                serialized_data = serilizer.data
+                return Response(data = serialized_data)
+            
+            else:
+                task = Task.objects.get(id=id)
+                serilizer = TaskSerializer(task)
+                serialized_data = serilizer.data
+                return Response(data = serialized_data)
+        except Task.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=404)
     
     @override
     def post(self, request):
-        #get the task from the request body
-        data = request.data
-        #add the task to the json file
-        tasks = self.__get_all_tasks()
-        task = {
-            'id': len(tasks) + 1,
-            'title': data['title'],
-            'description': data['description'],
-            'completed': False
-        }
-        with open(TASK_FILE,'w') as file:
-            tasks.append(task)
-            json.dump(tasks, file)
-        return Response(task,status=status.HTTP_201_CREATED) #201 is the status code for created
+        try:
+            data = request.data
+            serializer = TaskSerializer(data=data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED) #201 is the status code for created
+        except Exception:
+            return Response(status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @override
     def put(self, request, id=None):
         if id is None:
             return Response({'error': 'Task id is required'}, status=400)
-        tasks = self.__get_all_tasks()
-        data = request.data
-        for task in tasks:
-            if task['id'] == id:
-                task['title'] = data.get('title', task['title'])
-                task['description'] = data.get('description', task['description'])
-                task['completed'] = data.get('completed', task['completed'])
-                with open(TASK_FILE, 'w') as file:
-                    json.dump(tasks, file)
-                return Response({'task': task})
-        return Response({'error': 'Task not found'}, status=404)
+        try:
+            task = Task.objects.get(id=id)
+            serializer = TaskSerializer(task, data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Task.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=404)
+        
 
     @override
     def delete(self, request, id=None):
         if id is None:
             return Response({'error': 'Task id is required'}, status=400)
-        tasks = self.__get_all_tasks()
-        updated_tasks = [task for task in tasks if task['id'] != id]
-        if len(updated_tasks) == len(tasks):
+        try:
+            task = Task.objects.get(id=id)
+            task.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Task.DoesNotExist:
             return Response({'error': 'Task not found'}, status=404)
-        with open(TASK_FILE, 'w') as file:
-            json.dump(updated_tasks, file)
-        return Response(status=status.HTTP_204_NO_CONTENT)
